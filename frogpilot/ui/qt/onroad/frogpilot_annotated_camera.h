@@ -20,19 +20,19 @@ public:
   void paintRainbowPath(QPainter &p, QLinearGradient &bg, float lin_grad_point);
   void updateState(const UIState &s, const FrogPilotUIState &fs);
 
-  bool hideBottomIcons;
-  bool isCruiseSet;
+  bool hideBottomIcons = false;
+  bool isCruiseSet = false;
   bool rightHandDM;
 
   int alertHeight;
-  int speedLimitHeight;
-  int standstillDuration;
+  int speedLimitHeight = 0;
+  int standstillDuration = 0;
 
-  float speed;
+  float speed = 0;
 
   std::vector<QPointF> radar_tracks;
 
-  FrogPilotUIScene frogpilot_scene;
+  FrogPilotUIScene frogpilot_scene = {};
 
   QColor blueColor(int alpha = 255) { return QColor(0, 0, 255, alpha); }
   QColor purpleColor(int alpha = 255) { return QColor(128, 0, 128, alpha); }
@@ -48,14 +48,16 @@ public:
   QPolygonF track_vertices;
 
   QRect adjacentLeadTextRect;
-  QRect leadTextRect;
   QRect setSpeedRect;
+
+  QVector<QRect> leadTextRects;
 
   QSize defaultSize;
 
   QString signalStyle;
 
 protected:
+  void hideEvent(QHideEvent *event) override;
   void showEvent(QShowEvent *event) override;
 
 private:
@@ -75,14 +77,17 @@ private:
   void paintStoppingPoint(QPainter &p);
   void paintTurnSignals(QPainter &p);
   void paintWeather(QPainter &p);
+  void updateCEMIcon();
   void updateSignals();
+  void updateWeatherIcon();
 
+  bool assetsLoaded = false;
   bool blindspotLeft;
   bool blindspotRight;
   bool blinkerLeft;
   bool blinkerRight;
   bool brakeLights;
-  bool cscControllingSpeed;
+  bool cscActive;
   bool cscTraining;
   bool experimentalMode;
   bool forceCoast;
@@ -92,20 +97,19 @@ private:
   bool speedLimitChanged;
   bool weatherDaytime;
 
-  int animationFrameIndex;
+  int animationFrameIndex = 0;
   int desiredFollowDistance;
-  int frogHopCount;
-  int signalAnimationLength;
-  int signalHeight;
-  int signalMovement;
-  int signalWidth;
-  int totalFrames;
+  int signalAnimationLength = 0;
+  int signalHeight = 0;
+  int signalWidth = 0;
+  int totalFrames = 0;
   int weatherId;
 
   float accelerationEgo;
   float cscSpeed;
   float dashboardSpeedLimit;
   float distanceConversion;
+  float hueOffset = 0.0f;
   float laneWidthLeft;
   float laneWidthRight;
   float mapSpeedLimit;
@@ -122,7 +126,6 @@ private:
 
   std::string speedLimitSource;
 
-  Params params;
   Params params_memory{"", true};
 
   QColor blackColor(int alpha = 255) { return QColor(0, 0, 0, alpha); }
@@ -152,24 +155,16 @@ private:
   QRect newSpeedLimitRect;
   QRect speedLimitRect;
 
-  QSharedPointer<QMovie> cemCurveIcon;
-  QSharedPointer<QMovie> cemLeadIcon;
-  QSharedPointer<QMovie> cemSpeedIcon;
-  QSharedPointer<QMovie> cemStopIcon;
-  QSharedPointer<QMovie> cemTurnIcon;
-  QSharedPointer<QMovie> chillModeIcon;
-  QSharedPointer<QMovie> experimentalModeIcon;
-  QSharedPointer<QMovie> weatherClearDay;
-  QSharedPointer<QMovie> weatherClearNight;
-  QSharedPointer<QMovie> weatherLowVisibility;
-  QSharedPointer<QMovie> weatherRain;
-  QSharedPointer<QMovie> weatherSnow;
+  QSharedPointer<QMovie> cemIcon;
+  QSharedPointer<QMovie> weatherIcon;
 
+  QString cemIconPath;
   QString leadDistanceUnit;
   QString leadSpeedUnit;
   QString roadName;
   QString speedLimitOffsetStr;
   QString speedUnit;
+  QString weatherIconPath;
 
   QTimer *animationTimer;
 

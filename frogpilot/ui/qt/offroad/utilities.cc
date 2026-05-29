@@ -3,31 +3,49 @@
 FrogPilotUtilitiesPanel::FrogPilotUtilitiesPanel(FrogPilotSettingsWindow *parent, bool forceOpen) : FrogPilotListWidget(parent), parent(parent) {
   forceOpenDescriptions = forceOpen;
 
-  ParamControl *debugModeToggle = new ParamControl("DebugMode", tr("Debug Mode"), tr("<b>Use all of FrogPilot's developer metrics on your next drive</b> to diagnose issues and improve bug reports."), "");
+  ParamControl *debugModeToggle = new ParamControl("DebugMode", tr("Debug Mode"), tr("<b>Show FrogPilot's developer readouts on the driving screen for your next drive, so a bug report can say what openpilot was actually doing.</b><br><br>It switches itself back off once you finish the drive. While it is on, the temperature reads in Celsius and the developer numbers read in scientific units, whatever you picked elsewhere. Your speedometer is not affected."), "");
   if (forceOpenDescriptions) {
     debugModeToggle->showDescription();
   }
   addItem(debugModeToggle);
 
-  ButtonControl *flashPandaButton = new ButtonControl(tr("Flash Panda"), tr("FLASH"), tr("<b>Flash the latest, official firmware onto your Panda device</b> to restore core functionality, fix bugs, or ensure you have the most up-to-date software."));
+  ButtonControl *flashPandaButton = new ButtonControl(tr("Reflash the Panda"), tr("FLASH"), tr("<b>Reinstall the software on the Panda, the small box that lets your device talk to your car.</b><br><br>Try this if openpilot keeps losing contact with the car or the Panda shows up as faulty. Your device reboots once it finishes, and the car has to be off to start."));
   QObject::connect(flashPandaButton, &ButtonControl::clicked, [parent, flashPandaButton, this]() {
-    if (ConfirmationDialog::confirm(tr("Are you sure you want to flash the Panda firmware?"), tr("Flash"), this)) {
-      std::thread([parent, flashPandaButton, this]() {
-        parent->keepScreenOn = true;
+    if (uiState()->scene.started) {
+      ConfirmationDialog::alert(tr("The Panda can't be reflashed while the car is on. Turn the car off and try again."), this);
+      return;
+    }
 
-        flashPandaButton->setEnabled(false);
-        flashPandaButton->setValue(tr("Flashing..."));
+    if (actionRunning) {
+      ConfirmationDialog::alert(tr("Something else is already running. Wait for it to finish and try again."), this);
+      return;
+    }
+
+    if (ConfirmationDialog::confirm(tr("Reflash the Panda? Your device reboots once it finishes."), tr("Flash"), this)) {
+      actionRunning = true;
+
+      std::thread([parent, flashPandaButton, this]() {
+        runOnUIThread(flashPandaButton, [parent, flashPandaButton]() {
+          parent->keepScreenOn = true;
+
+          flashPandaButton->setEnabled(false);
+          flashPandaButton->setValue(tr("Flashing..."));
+        });
 
         params_memory.putBool("FlashPanda", true);
         while (params_memory.getBool("FlashPanda")) {
           util::sleep_for(UI_FREQ);
         }
 
-        flashPandaButton->setValue(tr("Flashed!"));
+        runOnUIThread(flashPandaButton, [flashPandaButton]() {
+          flashPandaButton->setValue(tr("Flashed!"));
+        });
 
         util::sleep_for(2500);
 
-        flashPandaButton->setValue(tr("Rebooting..."));
+        runOnUIThread(flashPandaButton, [flashPandaButton]() {
+          flashPandaButton->setValue(tr("Rebooting..."));
+        });
 
         util::sleep_for(2500);
 
@@ -40,7 +58,7 @@ FrogPilotUtilitiesPanel::FrogPilotUtilitiesPanel(FrogPilotSettingsWindow *parent
   }
   addItem(flashPandaButton);
 
-  FrogPilotButtonsControl *forceStartedButton = new FrogPilotButtonsControl(tr("Force Drive State"), tr("<b>Force openpilot to be offroad or onroad.</b>"), "", {tr("OFFROAD"), tr("ONROAD"), tr("OFF")}, true);
+  FrogPilotButtonsControl *forceStartedButton = new FrogPilotButtonsControl(tr("Force Drive State"), tr("<b>Make openpilot behave as though the car is running, or as though it is parked, without the car actually being either.</b><br><br>This is a testing tool. Forcing the running state pins the screen to full brightness and stops openpilot warning you that its controls are unresponsive, so leave it on \"OFF\" unless you know why you need it. It clears itself the next time the device restarts."), "", {tr("OFFROAD"), tr("ONROAD"), tr("OFF")}, true);
   QObject::connect(forceStartedButton, &FrogPilotButtonsControl::buttonClicked, [this](int id) {
     if (id == 0) {
       params.putBool("ForceOffroad", true);
@@ -62,48 +80,74 @@ FrogPilotUtilitiesPanel::FrogPilotUtilitiesPanel(FrogPilotSettingsWindow *parent
       updateFrogPilotToggles();
     }
   });
-  forceStartedButton->setCheckedButton(2);
+  if (params.getBool("ForceOffroad")) {
+    forceStartedButton->setCheckedButton(0);
+  } else if (params.getBool("ForceOnroad")) {
+    forceStartedButton->setCheckedButton(1);
+  } else {
+    forceStartedButton->setCheckedButton(2);
+  }
   if (forceOpenDescriptions) {
     forceStartedButton->showDescription();
   }
   addItem(forceStartedButton);
 
-  ButtonControl *reportIssueButton = new ButtonControl(tr("Report a Bug or an Issue"), tr("REPORT"), tr("<b>Send a bug report</b> so we can help fix the problem!"));
+  ButtonControl *reportIssueButton = new ButtonControl(tr("Report a Bug or an Issue"), tr("REPORT"), tr("<b>Tell the FrogPilot team what went wrong, straight from the car.</b><br><br>You pick what happened from a list, add a description where it helps, and give your Discord name so they can reach you. Your settings and the most recent error log go along with it so the problem can be traced."));
   QObject::connect(reportIssueButton, &ButtonControl::clicked, [this]() {
     if (!frogpilotUIState()->frogpilot_scene.online) {
-      ConfirmationDialog::alert(tr("Please connect to the internet before sending a report!"), this);
+      ConfirmationDialog::alert(tr("Connect to Wi-Fi or a hotspot first, then send your report."), this);
       return;
     }
 
+    QString crashOption = tr("I saw an alert that said \"openpilot crashed\"");
+    QString unsureOption = tr("I'm not sure if this is normal or a bug:");
+    QString otherOption = tr("Something else (please describe)");
+
     QStringList report_messages = {
       tr("Acceleration feels harsh or jerky"),
-      tr("An alert was unclear and I'm not sure what it meant"),
+      tr("An alert was unclear and I didn't know what it meant"),
       tr("Braking is too sudden or uncomfortable"),
-      tr("I'm not sure if this is normal or a bug:"),
+      unsureOption,
+      tr("My screen froze or is stuck loading something"),
       tr("My steering wheel buttons aren't working"),
       tr("openpilot disengages when I don't expect it"),
+      tr("openpilot doesn't react to stopped vehicles ahead"),
+      tr("openpilot doesn't resume from a stop"),
       tr("openpilot feels sluggish or slow to respond"),
-      tr("Something else (please describe)")
+      tr("Steering feels twitchy or unnatural"),
+      tr("The car doesn't follow curves well"),
+      tr("The car isn't staying centered in its lane"),
+      otherOption
     };
 
     if (QFile::exists("/data/error_logs/error.txt")) {
-      report_messages.prepend(tr("I saw an alert that said \"openpilot crashed\""));
+      report_messages.prepend(crashOption);
     }
 
-    QString selected_issue = MultiOptionDialog::getSelection(tr("What's going on?"), report_messages, "", this);
+    QStringList needs_extra_input = {crashOption, unsureOption, otherOption};
+
+    QString selected_issue = MultiOptionDialog::getSelection(tr("What went wrong?"), report_messages, "", this);
     if (selected_issue.isEmpty()) {
       return;
     }
 
-    if (selected_issue.contains("crashed") || selected_issue.contains("not sure") || selected_issue.contains("Something else")) {
+    if (needs_extra_input.contains(selected_issue)) {
       QString extra_input = InputDialog::getText(tr("Please describe what's happening"), this, tr("Send Report"), false, 10, "", 300).trimmed();
       if (extra_input.isEmpty()) {
         return;
       }
-      selected_issue += " — " + extra_input;
+      if (selected_issue.endsWith(":")) {
+        selected_issue += " " + extra_input;
+      } else {
+        selected_issue += ": " + extra_input;
+      }
     }
 
-    QString discord_user = InputDialog::getText(tr("What's your Discord username?"), this, tr("Send Report"), false, -1, QString::fromStdString(params.get("DiscordUsername"))).trimmed();
+    QString discord_user = InputDialog::getText(tr("What's your Discord username?"), this, tr("Send Report"),
+                                               false, -1, QString::fromStdString(params.get("DiscordUsername")), 64).trimmed();
+    if (discord_user.isEmpty()) {
+      return;
+    }
 
     QJsonObject reportData;
     reportData["DiscordUser"] = discord_user;
@@ -118,16 +162,30 @@ FrogPilotUtilitiesPanel::FrogPilotUtilitiesPanel(FrogPilotSettingsWindow *parent
     reportIssueButton->showDescription();
   }
   addItem(reportIssueButton);
-  reportIssueButton->setVisible(QString::fromStdString(params.get("GitRemote")).toLower() == "https://github.com/frogai/openpilot.git");
+  reportIssueButton->setVisible(QString::fromStdString(params.get("GitRemote")).toLower().contains("frogai/frogpilot"));
 
-  ButtonControl *resetTogglesButton = new ButtonControl(tr("Reset Toggles to Default"), tr("RESET"), tr("<b>Reset all toggles to their default values.</b>"));
+  ButtonControl *resetTogglesButton = new ButtonControl(tr("Reset Settings to Default"), tr("RESET"), tr("<b>Put every FrogPilot setting back to the value it shipped with.</b><br><br>This also clears your accepted terms, your completed training and your language, so you go through first-time setup again in English. The reset happens while the device reboots, and your drives, backups and downloaded themes are left alone."));
   QObject::connect(resetTogglesButton, &ButtonControl::clicked, [parent, resetTogglesButton, this]() {
-    if (ConfirmationDialog::confirm(tr("Are you sure you want to reset all toggles to their default values?"), tr("Reset"), this)) {
-      std::thread([parent, resetTogglesButton, this]() {
-        parent->keepScreenOn = true;
+    if (uiState()->scene.started) {
+      ConfirmationDialog::alert(tr("Settings can't be reset while the car is on. Turn the car off and try again."), this);
+      return;
+    }
 
-        resetTogglesButton->setEnabled(false);
-        resetTogglesButton->setValue(tr("Resetting..."));
+    if (actionRunning) {
+      ConfirmationDialog::alert(tr("Something else is already running. Wait for it to finish and try again."), this);
+      return;
+    }
+
+    if (ConfirmationDialog::confirm(tr("Reset every FrogPilot setting to its default? You will have to accept the terms, redo the training and set your language again."), tr("Reset"), this)) {
+      actionRunning = true;
+
+      std::thread([parent, resetTogglesButton, this]() {
+        runOnUIThread(resetTogglesButton, [parent, resetTogglesButton]() {
+          parent->keepScreenOn = true;
+
+          resetTogglesButton->setEnabled(false);
+          resetTogglesButton->setValue(tr("Resetting..."));
+        });
 
         std::vector<std::string> all_keys = params.allKeys();
         for (const std::string &key : all_keys) {
@@ -142,11 +200,21 @@ FrogPilotUtilitiesPanel::FrogPilotUtilitiesPanel(FrogPilotSettingsWindow *parent
 
         updateFrogPilotToggles();
 
-        resetTogglesButton->setValue(tr("Reset!"));
+        runOnUIThread(resetTogglesButton, [resetTogglesButton]() {
+          resetTogglesButton->setValue(tr("Reset!"));
+        });
 
         util::sleep_for(2500);
 
-        resetTogglesButton->setValue("");
+        runOnUIThread(resetTogglesButton, [parent, resetTogglesButton, this]() {
+          parent->updateMetric(params.getBool("IsMetric"), true);
+
+          resetTogglesButton->setEnabled(true);
+          resetTogglesButton->setValue("");
+
+          parent->keepScreenOn = false;
+          actionRunning = false;
+        });
       }).detach();
     }
   });
@@ -155,14 +223,28 @@ FrogPilotUtilitiesPanel::FrogPilotUtilitiesPanel(FrogPilotSettingsWindow *parent
   }
   addItem(resetTogglesButton);
 
-  ButtonControl *resetTogglesButtonStock = new ButtonControl(tr("Reset Toggles to Stock openpilot"), tr("RESET"), tr("<b>Reset all toggles to match stock openpilot.</b>"));
+  ButtonControl *resetTogglesButtonStock = new ButtonControl(tr("Reset Settings to Stock openpilot"), tr("RESET"), tr("<b>Put every setting back to what plain openpilot uses, turning FrogPilot's own features off rather than back to FrogPilot's defaults.</b><br><br>This also clears your accepted terms, your completed training and your language, so you go through first-time setup again in English. The reset happens while the device reboots, and your drives, backups and downloaded themes are left alone."));
   QObject::connect(resetTogglesButtonStock, &ButtonControl::clicked, [parent, resetTogglesButtonStock, this]() {
-    if (ConfirmationDialog::confirm(tr("Are you sure you want to reset all toggles to match stock openpilot?"), tr("Reset"), this)) {
-      std::thread([parent, resetTogglesButtonStock, this]() {
-        parent->keepScreenOn = true;
+    if (uiState()->scene.started) {
+      ConfirmationDialog::alert(tr("Settings can't be reset while the car is on. Turn the car off and try again."), this);
+      return;
+    }
 
-        resetTogglesButtonStock->setEnabled(false);
-        resetTogglesButtonStock->setValue(tr("Resetting..."));
+    if (actionRunning) {
+      ConfirmationDialog::alert(tr("Something else is already running. Wait for it to finish and try again."), this);
+      return;
+    }
+
+    if (ConfirmationDialog::confirm(tr("Reset every setting to match stock openpilot? You will have to accept the terms, redo the training and set your language again."), tr("Reset"), this)) {
+      actionRunning = true;
+
+      std::thread([parent, resetTogglesButtonStock, this]() {
+        runOnUIThread(resetTogglesButtonStock, [parent, resetTogglesButtonStock]() {
+          parent->keepScreenOn = true;
+
+          resetTogglesButtonStock->setEnabled(false);
+          resetTogglesButtonStock->setValue(tr("Resetting..."));
+        });
 
         std::vector<std::string> all_keys = params.allKeys();
         for (const std::string &key : all_keys) {
@@ -177,11 +259,21 @@ FrogPilotUtilitiesPanel::FrogPilotUtilitiesPanel(FrogPilotSettingsWindow *parent
 
         updateFrogPilotToggles();
 
-        resetTogglesButtonStock->setValue(tr("Reset!"));
+        runOnUIThread(resetTogglesButtonStock, [resetTogglesButtonStock]() {
+          resetTogglesButtonStock->setValue(tr("Reset!"));
+        });
 
         util::sleep_for(2500);
 
-        resetTogglesButtonStock->setValue("");
+        runOnUIThread(resetTogglesButtonStock, [parent, resetTogglesButtonStock, this]() {
+          parent->updateMetric(params.getBool("IsMetric"), true);
+
+          resetTogglesButtonStock->setEnabled(true);
+          resetTogglesButtonStock->setValue("");
+
+          parent->keepScreenOn = false;
+          actionRunning = false;
+        });
       }).detach();
     }
   });

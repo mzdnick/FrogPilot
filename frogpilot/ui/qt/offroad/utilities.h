@@ -9,6 +9,7 @@ public:
   explicit FrogPilotUtilitiesPanel(FrogPilotSettingsWindow *parent, bool forceOpen = false);
 
 private:
+  bool actionRunning = false;
   bool forceOpenDescriptions;
 
   FrogPilotSettingsWindow *parent;
@@ -19,7 +20,7 @@ private:
   std::set<std::string> excluded_keys = {
     "AvailableModels", "AvailableModelNames", "FrogPilotStats",
     "GithubSshKeys", "GithubUsername", "MapBoxRequests",
-    "ModelDrivesAndScores", "OverpassRequests", "SpeedLimits",
-    "SpeedLimitsFiltered", "UpdaterAvailableBranches",
+    "ModelDrivesAndScores", "SpeedLimits",
+    "UpdaterAvailableBranches",
   };
 };

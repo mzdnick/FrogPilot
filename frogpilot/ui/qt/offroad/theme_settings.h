@@ -15,26 +15,28 @@ signals:
   void openSubPanel();
 
 private:
+  void updateStartupAlert();
   void updateState(const UIState &s, const FrogPilotUIState &fs);
+  void updateThemeSelections(bool randomThemesEnabled);
   void updateToggles();
 
-  bool cancellingDownload;
-  bool colorDownloading;
-  bool colorsDownloaded;
-  bool distanceIconDownloading;
-  bool distanceIconsDownloaded;
-  bool finalizingDownload;
+  bool cancellingDownload = false;
+  bool colorDownloading = false;
+  bool colorsDownloaded = false;
+  bool distanceIconDownloading = false;
+  bool distanceIconsDownloaded = false;
+  bool finalizingDownload = false;
   bool forceOpenDescriptions;
-  bool iconDownloading;
-  bool iconsDownloaded;
-  bool randomThemes;
-  bool signalDownloading;
-  bool signalsDownloaded;
-  bool soundDownloading;
-  bool soundsDownloaded;
-  bool themeDownloading;
-  bool wheelDownloading;
-  bool wheelsDownloaded;
+  bool iconDownloading = false;
+  bool iconsDownloaded = false;
+  bool randomThemes = false;
+  bool signalDownloading = false;
+  bool signalsDownloaded = false;
+  bool soundDownloading = false;
+  bool soundsDownloaded = false;
+  bool themeDownloading = false;
+  bool wheelDownloading = false;
+  bool wheelsDownloaded = false;
 
   std::map<QString, AbstractControl*> toggles;
 
@@ -48,6 +50,7 @@ private:
   FrogPilotButtonsControl *manageSignalAnimationButton;
   FrogPilotButtonsControl *manageSoundPackButton;
   FrogPilotButtonsControl *manageWheelIconsButton;
+  FrogPilotButtonsControl *startupAlertButton;
 
   FrogPilotSettingsWindow *parent;
 
@@ -55,13 +58,6 @@ private:
 
   QDir themePacksDirectory{"/data/themes/theme_packs/"};
   QDir wheelsDirectory{"/data/themes/steering_wheels/"};
-
-  QString colorSchemeToDownload;
-  QString distanceIconPackToDownload;
-  QString iconPackToDownload;
-  QString signalAnimationToDownload;
-  QString soundPackToDownload;
-  QString wheelToDownload;
 
   Params params;
   Params params_memory{"", true};

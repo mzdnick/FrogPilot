@@ -100,7 +100,7 @@ class Soundd:
 
     self.openpilot_crashed_played = False
 
-    self.auto_volume = 0
+    self.auto_volume = MIN_VOLUME
 
     self.previous_sound_pack = None
 
@@ -174,6 +174,8 @@ class Soundd:
 
   def get_audible_alert(self, sm):
     if self.params_memory.get("TestAlert"):
+      self.frogpilot_toggles = get_frogpilot_toggles()
+      self.update_frogpilot_sounds()
       self.update_alert(getattr(AudibleAlert, self.params_memory.get("TestAlert")))
       self.params_memory.remove("TestAlert")
     elif not self.openpilot_crashed_played and self.error_log.is_file():
@@ -222,6 +224,8 @@ class Soundd:
       while True:
         sm.update(0)
 
+        self.get_audible_alert(sm)
+
         if sm.updated['soundPressure'] and self.current_alert == AudibleAlert.none: # only update volume filter when not playing alert
           self.spl_filter_weighted.update(sm["soundPressure"].soundPressureWeightedDb)
           self.current_volume = self.calculate_volume(float(self.spl_filter_weighted.x))
@@ -235,20 +239,19 @@ class Soundd:
           if self.current_volume == 1.01:
             self.current_volume = self.auto_volume
 
-        self.get_audible_alert(sm)
-
         rk.keep_time()
 
         assert stream.active
 
         # FrogPilot variables
+        theme_updated = sm['frogpilotPlan'].themeUpdated
         frogpilot_toggles = get_frogpilot_toggles(sm)
-        if frogpilot_toggles != self.frogpilot_toggles:
+        if theme_updated or frogpilot_toggles != self.frogpilot_toggles:
           self.frogpilot_toggles = frogpilot_toggles
 
-          stream = self.update_frogpilot_sounds(sd, stream)
+          stream = self.update_frogpilot_sounds(sd, stream, force_reload=theme_updated)
 
-  def update_frogpilot_sounds(self, sd=None, stream=None):
+  def update_frogpilot_sounds(self, sd=None, stream=None, force_reload=False):
     self.volume_map = {
       AudibleAlert.engage: self.frogpilot_toggles.engage_volume / 100.0,
       AudibleAlert.disengage: self.frogpilot_toggles.disengage_volume / 100.0,
@@ -274,7 +277,7 @@ class Soundd:
     else:
       self.sound_directory = Path(BASEDIR) / "selfdrive" / "assets" / "sounds"
 
-    if self.frogpilot_toggles.sound_pack != self.previous_sound_pack:
+    if force_reload or self.frogpilot_toggles.sound_pack != self.previous_sound_pack:
       self.load_sounds()
 
       self.previous_sound_pack = self.frogpilot_toggles.sound_pack

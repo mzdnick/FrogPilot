@@ -72,8 +72,10 @@ class CarState(CarStateBase):
     self.needs_angle_offset_zss = False
 
     self.angle_offset_zss = 0
+    self.prev_pcm_acc_status = 0
 
     self.has_can_filter = self.FPCP.flags & ToyotaFrogPilotFlags.RADAR_CAN_FILTER.value
+    self.has_dsu_bypass = self.FPCP.flags & ToyotaFrogPilotFlags.DSU_BYPASS.value
     self.has_SDSU = self.FPCP.flags & ToyotaFrogPilotFlags.SMART_DSU.value
     self.has_ZSS = self.FPCP.flags & ToyotaFrogPilotFlags.ZSS.value
 
@@ -82,7 +84,7 @@ class CarState(CarStateBase):
     cp_cam = can_parsers[Bus.cam]
 
     ret = structs.CarState()
-    cp_acc = cp_cam if self.CP.carFingerprint in (TSS2_CAR - RADAR_ACC_CAR) else cp
+    cp_acc = cp_cam if (self.CP.carFingerprint in (TSS2_CAR - RADAR_ACC_CAR) or self.has_dsu_bypass) else cp
 
     if not self.CP.flags & ToyotaFlags.SECOC.value:
       self.gvc = cp.vl["VSC1S07"]["GVC"]
@@ -171,8 +173,9 @@ class CarState(CarStateBase):
       conversion_factor = CV.KPH_TO_MS if is_metric else CV.MPH_TO_MS
       ret.cruiseState.speedCluster = cluster_set_speed * conversion_factor
 
-    if self.CP.carFingerprint in TSS2_CAR and not self.CP.flags & ToyotaFlags.DISABLE_RADAR.value:
-      self.acc_type = cp_acc.vl["ACC_CONTROL"]["ACC_TYPE"]
+    if (self.CP.carFingerprint in TSS2_CAR and not self.CP.flags & ToyotaFlags.DISABLE_RADAR.value) or self.has_dsu_bypass:
+      if not self.has_SDSU:
+        self.acc_type = cp_acc.vl["ACC_CONTROL"]["ACC_TYPE"]
       ret.stockFcw = bool(cp_acc.vl["PCS_HUD"]["FCW"])
 
     # some TSS2 cars have low speed lockout permanently set, so ignore on those cars
@@ -231,16 +234,21 @@ class CarState(CarStateBase):
 
       buttonEvents += create_button_events(self.distance_button, prev_distance_button, {1: ButtonType.gapAdjustCruise})
 
-    buttonEvents += [
-      *create_button_events(self.pcm_acc_status == 9, False, {1: ButtonType.accelCruise}),
-      *create_button_events(self.pcm_acc_status == 10, False, {1: ButtonType.decelCruise}),
-    ]
+    if self.pcm_acc_status != self.prev_pcm_acc_status and self.pcm_acc_status in (9, 10):
+      if self.pcm_acc_status == 9:
+        button_type = ButtonType.accelCruise
+      else:
+        button_type = ButtonType.decelCruise
+
+      buttonEvents += create_button_events(1, 0, {1: button_type}) + create_button_events(0, 1, {1: button_type})
 
     fp_ret.dashboardSpeedLimit = calculate_speed_limit(cp_cam)
 
     if not self.CP.flags & ToyotaFlags.SECOC.value:
       fp_ret.ecoGear = cp.vl["GEAR_PACKET"]["ECON_ON"] == 1
       fp_ret.sportGear = cp.vl["GEAR_PACKET"]["SPORT_ON_2" if self.CP.flags & ToyotaFlags.NO_DSU else "SPORT_ON"] == 1
+
+    self.prev_pcm_acc_status = self.pcm_acc_status
 
     # ZSS Support - Credit goes to Erich!
     if self.has_ZSS:

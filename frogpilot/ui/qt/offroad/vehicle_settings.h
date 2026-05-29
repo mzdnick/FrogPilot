@@ -15,11 +15,10 @@ protected:
   void showEvent(QShowEvent *event) override;
 
 private:
-  void updateState(const UIState &s);
+  void updateCarLabels();
   void updateToggles();
 
   bool forceOpenDescriptions;
-  bool started;
 
   std::map<QString, AbstractControl*> toggles;
 
@@ -27,12 +26,15 @@ private:
   QSet<QString> hkgKeys = {"TacoTuneHacks"};
   QSet<QString> longitudinalKeys = {"FrogsGoMoosTweak", "SNGHack", "VoltSNG"};
   QSet<QString> subaruKeys = {"SubaruSNG"};
-  QSet<QString> toyotaKeys = {"ClusterOffset", "FrogsGoMoosTweak", "LockDoorsTimer", "SNGHack", "ToyotaDoors"};
+  QSet<QString> toyotaKeys = {"ClusterOffset", "FrogsGoMoosTweak", "LockDoorsTimer", "SNGHack", "ToyotaDSUBypass", "ToyotaDoors"};
   QSet<QString> vehicleInfoKeys = {"BlindSpotSupport", "HardwareDetected", "OpenpilotLongitudinal", "PedalSupport", "RadarSupport", "SDSUSupport", "SNGSupport"};
 
   QSet<QString> parentKeys;
 
   FrogPilotSettingsWindow *parent;
+
+  ButtonControl *selectMakeButton;
+  ButtonControl *selectModelButton;
 
   ParamControl *disableOpenpilotLong;
   ParamControl *forceFingerprint;

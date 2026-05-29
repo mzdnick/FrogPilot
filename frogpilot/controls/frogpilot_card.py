@@ -69,6 +69,9 @@ class FrogPilotCard:
     elif frogpilot_toggles.always_on_lateral_main:
       self.always_on_lateral_allowed = carState.cruiseState.available
 
+    if not frogpilot_toggles.always_on_lateral_lkas and not frogpilot_toggles.always_on_lateral_main:
+      self.always_on_lateral_allowed = carState.cruiseState.enabled
+
     self.always_on_lateral_enabled = self.always_on_lateral_allowed and self.always_on_lateral_set
     self.always_on_lateral_enabled &= carState.gearShifter not in NON_DRIVING_GEARS
     self.always_on_lateral_enabled &= sm["frogpilotPlan"].lateralCheck
@@ -77,11 +80,11 @@ class FrogPilotCard:
     self.always_on_lateral_enabled &= not (carState.brakePressed and carState.vEgo < frogpilot_toggles.always_on_lateral_pause_speed) or carState.standstill
     self.always_on_lateral_enabled &= not self.error_log.is_file() or self.frogs_go_moo
 
-    if sm.updated["frogpilotPlan"] or any(be.type in (ButtonType.accelCruise, ButtonType.resumeCruise) for be in carState.buttonEvents):
-      self.accel_pressed = any(be.type in (ButtonType.accelCruise, ButtonType.resumeCruise) for be in carState.buttonEvents)
+    if sm.updated["frogpilotPlan"] or any(be.pressed and be.type in (ButtonType.accelCruise, ButtonType.resumeCruise) for be in carState.buttonEvents):
+      self.accel_pressed = any(be.pressed and be.type in (ButtonType.accelCruise, ButtonType.resumeCruise) for be in carState.buttonEvents)
 
-    if sm.updated["frogpilotPlan"] or any(be.type == ButtonType.decelCruise for be in carState.buttonEvents):
-      self.decel_pressed = any(be.type == ButtonType.decelCruise for be in carState.buttonEvents)
+    if sm.updated["frogpilotPlan"] or any(be.pressed and be.type == ButtonType.decelCruise for be in carState.buttonEvents):
+      self.decel_pressed = any(be.pressed and be.type == ButtonType.decelCruise for be in carState.buttonEvents)
 
     if frogpilotCarState.distancePressed:
       self.gap_counter += 1

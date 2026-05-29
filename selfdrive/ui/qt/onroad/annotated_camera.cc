@@ -8,6 +8,8 @@
 #include "common/swaglog.h"
 #include "selfdrive/ui/qt/util.h"
 
+#include "frogpilot/ui/qt/onroad/screen_recorder.h"
+
 // Window that shows camera view and variety of info drawn on top
 AnnotatedCameraWidget::AnnotatedCameraWidget(VisionStreamType type, QWidget *parent)
     : fps_filter(UI_FREQ, 3, 1. / UI_FREQ), CameraWidget("camerad", type, parent) {
@@ -24,8 +26,8 @@ AnnotatedCameraWidget::AnnotatedCameraWidget(VisionStreamType type, QWidget *par
   personality_btn = new DrivingPersonalityButton(this);
   personality_btn->setVisible(false);
 
-  screen_recorder = new ScreenRecorder(this);
-  screen_recorder->setVisible(false);
+  screen_recorder_btn = new ScreenRecorderButton(this);
+  screen_recorder_btn->setVisible(false);
 }
 
 void AnnotatedCameraWidget::updateState(const UIState &s, const FrogPilotUIState &fs) {
@@ -35,7 +37,6 @@ void AnnotatedCameraWidget::updateState(const UIState &s, const FrogPilotUIState
 
   // FrogPilot variables
   const SubMaster &sm = *(s.sm);
-
   const cereal::CarState::Reader &carState = sm["carState"].getCarState();
 
   frogpilot_nvg->experimentalButtonPosition = QPoint(experimental_btn->x(), experimental_btn->y());
@@ -43,14 +44,18 @@ void AnnotatedCameraWidget::updateState(const UIState &s, const FrogPilotUIState
   bool onroad_distance_btn_enabled = frogpilot_nvg->dmIconPosition != QPoint(0, 0) && !frogpilot_nvg->hideBottomIcons && frogpilot_toggles.value("onroad_distance_button").toBool();
   personality_btn->setVisible(onroad_distance_btn_enabled);
   if (onroad_distance_btn_enabled) {
-    personality_btn->move(frogpilot_nvg->rightHandDM ? width() - UI_BORDER_SIZE - personality_btn->width() - (UI_BORDER_SIZE / 2) : UI_BORDER_SIZE, frogpilot_nvg->dmIconPosition.y() - personality_btn->height() / 2);
     personality_btn->updateState(s, fs);
   }
 
-  dmon.onroad_distance_btn_enabled = onroad_distance_btn_enabled;
+  screen_recorder_btn->move(experimental_btn->x() - UI_BORDER_SIZE - btn_size, experimental_btn->y());
+  if (frogpilot_toggles.value("screen_recorder").toBool()) {
+    screen_recorder_btn->setVisible(frogpilot_nvg->standstillDuration == 0 && !(frogpilot_nvg->signalStyle == "static" && carState.getRightBlinker()));
+  } else {
+    ScreenRecorder::stop();
+    screen_recorder_btn->setVisible(false);
+  }
 
-  screen_recorder->move(experimental_btn->x() - UI_BORDER_SIZE - btn_size, experimental_btn->y());
-  screen_recorder->setVisible(frogpilot_nvg->standstillDuration == 0 && !(frogpilot_nvg->signalStyle == "static" && carState.getRightBlinker()) && frogpilot_toggles.value("screen_recorder").toBool());
+  dmon.onroad_distance_btn_enabled = onroad_distance_btn_enabled;
 }
 
 void AnnotatedCameraWidget::initializeGL() {
@@ -114,14 +119,9 @@ mat4 AnnotatedCameraWidget::calcFrameMatrix() {
 }
 
 void AnnotatedCameraWidget::paintGL() {
-}
-
-void AnnotatedCameraWidget::paintEvent(QPaintEvent *event) {
   UIState *s = uiState();
   SubMaster &sm = *(s->sm);
   const double start_draw_t = millis_since_boot();
-
-  QPainter painter(this);
 
   // draw camera frame
   {
@@ -152,15 +152,13 @@ void AnnotatedCameraWidget::paintEvent(QPaintEvent *event) {
       wide_cam_requested = wide_cam_requested && sm["selfdriveState"].getSelfdriveState().getExperimentalMode() && frogpilot_toggles.value("camera_view").toInt() == 0;
     }
     CameraWidget::setStreamType(frogpilot_toggles.value("camera_view").toInt() == 1 ? VISION_STREAM_DRIVER :
-                                frogpilot_toggles.value("camera_view").toInt() == 3 || wide_cam_requested ? VISION_STREAM_WIDE_ROAD :
+                                frogpilot_toggles.value("camera_view").toInt() == 3 || (frogpilot_toggles.value("camera_view").toInt() == 0 && wide_cam_requested) ? VISION_STREAM_WIDE_ROAD :
                                 VISION_STREAM_ROAD);
     CameraWidget::setFrameId(sm["modelV2"].getModelV2().getFrameId());
-
-    painter.beginNativePainting();
     CameraWidget::paintGL();
-    painter.endNativePainting();
   }
 
+  QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
   painter.setPen(Qt::NoPen);
 
@@ -177,13 +175,19 @@ void AnnotatedCameraWidget::paintEvent(QPaintEvent *event) {
   hud.frogpilot_toggles = frogpilot_toggles;
   model.frogpilot_toggles = frogpilot_toggles;
 
+  hud.updateState(*s);
   model.draw(painter, rect());
   dmon.draw(painter, rect());
-  hud.updateState(*s);
+  if (personality_btn->isVisible()) {
+    personality_btn->move(frogpilot_nvg->rightHandDM ? width() - UI_BORDER_SIZE - personality_btn->width() - UI_BORDER_SIZE / 2 : UI_BORDER_SIZE,
+                          frogpilot_nvg->dmIconPosition.y() - personality_btn->height() / 2);
+  }
   hud.draw(painter, rect());
 
   // FrogPilot variables
   frogpilot_nvg->paintFrogPilotWidgets(painter, *s);
+
+  painter.end();
 
   double cur_draw_t = millis_since_boot();
   double dt = cur_draw_t - prev_draw_t;
