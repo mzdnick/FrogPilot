@@ -232,7 +232,7 @@ void FrogPilotAnnotatedCameraWidget::updateState(const UIState &s, const FrogPil
   blinkerLeft = carState.getLeftBlinker();
   blinkerRight = carState.getRightBlinker();
   brakeLights = frogpilotCarState.getBrakeLights();
-  cscActive = frogpilotPlan.getCscControllingSpeed() && !carState.getStandstill();
+  cscActive = frogpilotPlan.getCscActive() && !carState.getStandstill();
   cscSpeed = frogpilotPlan.getCscSpeed();
   cscTraining = frogpilotPlan.getCscTraining();
   dashboardSpeedLimit = frogpilotCarState.getDashboardSpeedLimit();
