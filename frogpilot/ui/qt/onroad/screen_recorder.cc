@@ -270,7 +270,7 @@ struct Mp4File {
     stream->codecpar->format = AV_PIX_FMT_YUV420P;
     stream->time_base = {1, 1000000};
     // Negative timestamps retain decoding preroll; the MP4 edit list hides it.
-    mp4->avoid_negative_ts = AVFMT_AVOID_NEG_TS_DISABLED;
+    mp4->avoid_negative_ts = 0;
     return avio_open(&mp4->pb, path.c_str(), AVIO_FLAG_WRITE) >= 0;
   }
 
