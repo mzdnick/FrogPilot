@@ -65,6 +65,25 @@ class FrogPilotPlanner:
     v_cruise = min(sm["carState"].vCruise, V_CRUISE_MAX) * CV.KPH_TO_MS
     v_ego = max(sm["carState"].vEgo, 0)
 
+    gps_location = sm[self.gps_location_service]
+    self.gps_valid = is_gps_location_valid(gps_location, self.gps_location_service, sm)
+    if self.gps_valid:
+      self.gps_position = {
+        "latitude": gps_location.latitude,
+        "longitude": gps_location.longitude,
+        "bearing": gps_location.bearingDeg,
+        "location_mono_time": sm.logMonoTime[self.gps_location_service],
+      }
+      self.params_memory.put("LastGPSPosition", json.dumps(self.gps_position))
+    else:
+      self.gps_position = None
+      self.params_memory.remove("LastGPSPosition")
+
+    if self.gps_valid and time_validated and frogpilot_toggles.weather_presets:
+      self.frogpilot_weather.update_weather(self.gps_position, now, frogpilot_toggles)
+    else:
+      self.frogpilot_weather.invalidate()
+
     if long_control_active:
       self.frogpilot_acceleration.update(v_ego, sm, frogpilot_toggles)
     else:
@@ -86,20 +105,6 @@ class FrogPilotPlanner:
     self.frogpilot_events.update(long_control_active, v_cruise, sm, frogpilot_toggles)
 
     self.frogpilot_following.update(long_control_active, v_ego, sm, frogpilot_toggles)
-
-    gps_location = sm[self.gps_location_service]
-    self.gps_valid = is_gps_location_valid(gps_location, self.gps_location_service, sm)
-    if self.gps_valid:
-      self.gps_position = {
-        "latitude": gps_location.latitude,
-        "longitude": gps_location.longitude,
-        "bearing": gps_location.bearingDeg,
-        "location_mono_time": sm.logMonoTime[self.gps_location_service],
-      }
-      self.params_memory.put("LastGPSPosition", json.dumps(self.gps_position))
-    else:
-      self.gps_position = None
-      self.params_memory.remove("LastGPSPosition")
 
     if v_ego >= frogpilot_toggles.minimum_lane_change_speed:
       self.lane_width_left = calculate_lane_width(sm["modelV2"].laneLines[0], sm["modelV2"].laneLines[1], sm["modelV2"].roadEdges[0])
@@ -138,11 +143,6 @@ class FrogPilotPlanner:
       self.tracking_lead = self.update_lead_status()
 
     self.v_cruise = self.frogpilot_vcruise.update(long_control_active, now, time_validated, v_cruise, v_ego, sm, frogpilot_toggles)
-
-    if self.gps_valid and time_validated and frogpilot_toggles.weather_presets:
-      self.frogpilot_weather.update_weather(self.gps_position, now, frogpilot_toggles)
-    else:
-      self.frogpilot_weather.invalidate()
 
   def update_lead_status(self):
     closing_lead = self.lead_one.status
