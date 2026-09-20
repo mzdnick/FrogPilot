@@ -31,7 +31,7 @@ int main(int argc, char *argv[]) {
 
   // FrogPilot variables
   ScreenRecorder::attach();
-  QObject::connect(&a, &QCoreApplication::aboutToQuit, &ScreenRecorder::stop);
+  QObject::connect(&a, &QCoreApplication::aboutToQuit, &ScreenRecorder::shutdown);
 
   return a.exec();
 }

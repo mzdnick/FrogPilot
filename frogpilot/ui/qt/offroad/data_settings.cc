@@ -246,6 +246,18 @@ FrogPilotDataPanel::FrogPilotDataPanel(FrogPilotSettingsWindow *parent, bool for
         friendlyName.replace("_", " ");
       }
 
+      if (cleanName.contains("_replay_")) {
+        friendlyName += tr(" (Replay)");
+      }
+
+      const QString baseName = friendlyName;
+      int duplicate = 2;
+
+      while (recordingMap.contains(friendlyName)) {
+        friendlyName = QString("%1 (%2)").arg(baseName).arg(duplicate);
+        duplicate++;
+      }
+
       friendlyNames.append(friendlyName);
       recordingMap[friendlyName] = name;
     }

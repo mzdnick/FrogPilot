@@ -1,4 +1,5 @@
 #include "frogpilot/ui/qt/onroad/screen_recorder.h"
+#include "frogpilot/ui/qt/onroad/replay_buffer.h"
 
 #ifdef QCOM2
 
@@ -17,6 +18,7 @@
 #include <cstring>
 #include <ctime>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -71,6 +73,13 @@ std::mutex recorder_mutex;
 std::vector<SwapchainBuffer> swapchain;
 wl_proxy *attached_buffer = nullptr;
 std::atomic<bool> recording = false;  // read every paint by the button, so it must not take recorder_mutex
+std::mutex manual_mutex;
+std::mutex packet_mutex;
+int replay_duration = 0;
+ReplayBuffer replay_buffer;
+std::vector<uint8_t> codec_config;
+std::thread save_thread;
+std::atomic<ScreenRecorder::ReplaySaveStatus> save_status{ScreenRecorder::ReplaySaveStatus::Idle};
 
 void capture(wl_proxy *wl_buffer);
 
@@ -182,9 +191,6 @@ int patchDriverImports(dl_phdr_info *object, size_t, void *) {
 }
 
 struct Session {
-  int lock_fd;
-  std::string path;
-  std::string final_path;
   uint32_t width, height;
 
   struct Source {
@@ -205,55 +211,143 @@ struct Session {
   std::vector<unsigned int> free_inputs;
   std::thread dequeue_thread;
 
-  AVFormatContext *mp4 = nullptr;
-  AVStream *stream = nullptr;
-  bool header_written = false;
   int64_t last_capture_us = 0;
 };
 
 Session *session = nullptr;
 
-bool openMp4(Session &s) {
-  avformat_alloc_output_context2(&s.mp4, nullptr, nullptr, s.path.c_str());
-  s.stream = avformat_new_stream(s.mp4, nullptr);
-  s.stream->codecpar->codec_type = AVMEDIA_TYPE_VIDEO;
-  s.stream->codecpar->codec_id = AV_CODEC_ID_H264;
-  s.stream->codecpar->width = s.width;
-  s.stream->codecpar->height = s.height;
-  s.stream->codecpar->format = AV_PIX_FMT_YUV420P;
-  s.stream->time_base = {1, 1000000};
-  s.mp4->avoid_negative_ts = AVFMT_AVOID_NEG_TS_MAKE_ZERO;
+// Both manual recordings and replay saves share the DATA panel's lock, but may
+// write different files concurrently. The DATA panel uses an exclusive lock.
+struct Mp4File {
+  int lock_fd = -1;
+  std::string path, final_path;
+  AVFormatContext *mp4 = nullptr;
+  AVStream *stream = nullptr;
+  int64_t start_us = -1;
 
-  if (avio_open(&s.mp4->pb, s.path.c_str(), AVIO_FLAG_WRITE) < 0) {
-    LOGE("screen recorder: cannot create %s", s.path.c_str());
-    avformat_free_context(s.mp4);
-    return false;
+  ~Mp4File() {
+    if (mp4) {
+      if (mp4->pb) {
+        avio_closep(&mp4->pb);
+      }
+      avformat_free_context(mp4);
+    }
+    if (!path.empty()) {
+      unlink(path.c_str());
+    }
+    if (lock_fd >= 0) {
+      close(lock_fd);
+    }
   }
-  return true;
-}
 
-void writePacket(Session &s, uint8_t *data, size_t size, int64_t timestamp_us, uint32_t flags) {
-  if (flags & V4L2_QCOM_BUF_FLAG_CODECCONFIG) {
-    s.stream->codecpar->extradata = static_cast<uint8_t *>(av_mallocz(size + AV_INPUT_BUFFER_PADDING_SIZE));
-    memcpy(s.stream->codecpar->extradata, data, size);
-    s.stream->codecpar->extradata_size = size;
-    if (avformat_write_header(s.mp4, nullptr) < 0) {
+  bool open(uint32_t width, uint32_t height, bool replay) {
+    lock_fd = ::open(LOCK_PATH, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0664);
+    if (lock_fd < 0 || flock(lock_fd, LOCK_SH | LOCK_NB) != 0) {
+      return false;
+    }
+
+    char name[32];
+    time_t now = time(nullptr);
+    tm local = {};
+    localtime_r(&now, &local);
+    strftime(name, sizeof(name), "%Y-%m-%d_%H-%M-%S", &local);
+    std::string filename = util::string_format("%s_%s%llu.mp4", name, replay ? "replay_" : "", static_cast<unsigned long long>(nanos_since_boot()));
+    util::create_directories(RECORDINGS_DIR, 0775);
+    util::create_directories(IN_PROGRESS_DIR, 0775);
+    path = std::string(IN_PROGRESS_DIR) + "/" + filename;
+    final_path = std::string(RECORDINGS_DIR) + "/" + filename;
+    if (avformat_alloc_output_context2(&mp4, nullptr, "mp4", path.c_str()) < 0) {
+      return false;
+    }
+    stream = avformat_new_stream(mp4, nullptr);
+    if (!stream) {
+      return false;
+    }
+    stream->codecpar->codec_type = AVMEDIA_TYPE_VIDEO;
+    stream->codecpar->codec_id = AV_CODEC_ID_H264;
+    stream->codecpar->width = width;
+    stream->codecpar->height = height;
+    stream->codecpar->format = AV_PIX_FMT_YUV420P;
+    stream->time_base = {1, 1000000};
+    // Negative timestamps retain decoding preroll; the MP4 edit list hides it.
+    mp4->avoid_negative_ts = AVFMT_AVOID_NEG_TS_DISABLED;
+    return avio_open(&mp4->pb, path.c_str(), AVIO_FLAG_WRITE) >= 0;
+  }
+
+  bool header(const std::vector<uint8_t> &config, int64_t timestamp_us) {
+    stream->codecpar->extradata = static_cast<uint8_t *>(av_mallocz(config.size() + AV_INPUT_BUFFER_PADDING_SIZE));
+    if (!stream->codecpar->extradata) {
+      return false;
+    }
+    memcpy(stream->codecpar->extradata, config.data(), config.size());
+    stream->codecpar->extradata_size = config.size();
+    AVDictionary *options = nullptr;
+    av_dict_set(&options, "use_editlist", "1", 0);
+    av_dict_set(&options, "movie_timescale", "1000000", 0);
+    int result = avformat_write_header(mp4, &options);
+    av_dict_free(&options);
+    if (result < 0) {
+      return false;
+    }
+    start_us = timestamp_us;
+    return true;
+  }
+
+  bool write(const uint8_t *data, size_t size, int64_t timestamp_us, bool keyframe, int64_t duration_us = 1000000 / MAX_FRAME_RATE) {
+    AVPacket packet = {};
+    packet.data = const_cast<uint8_t *>(data);
+    packet.size = size;
+    packet.stream_index = stream->index;
+    packet.pts = packet.dts = timestamp_us - start_us;
+    packet.duration = duration_us;
+    packet.flags = keyframe ? AV_PKT_FLAG_KEY : 0;
+    av_packet_rescale_ts(&packet, {1, 1000000}, stream->time_base);
+    return av_write_frame(mp4, &packet) >= 0;
+  }
+
+  bool finish() {
+    if (start_us < 0 || av_write_trailer(mp4) < 0) {
+      return false;
+    }
+    int error = mp4->pb->error;
+    int closed = avio_closep(&mp4->pb);
+    return error >= 0 && closed >= 0 && rename(path.c_str(), final_path.c_str()) == 0;
+  }
+};
+
+std::unique_ptr<Mp4File> manual_file;
+
+void writePacket(uint8_t *data, size_t size, int64_t timestamp_us, uint32_t flags) {
+  if (!size) {
+    return;
+  }
+  bool keyframe = flags & V4L2_BUF_FLAG_KEYFRAME;
+  {
+    std::lock_guard lock(packet_mutex);
+    if (flags & V4L2_QCOM_BUF_FLAG_CODECCONFIG) {
+      codec_config.assign(data, data + size);
       return;
     }
-    s.header_written = true;
-    return;
+    if (codec_config.empty()) {
+      return;
+    }
+    if (replay_duration > 0) {
+      replay_buffer.append(data, size, timestamp_us, keyframe);
+    }
   }
-  if (!s.header_written) {
-    return;
+
+  std::lock_guard lock(manual_mutex);
+  if (manual_file) {
+    if (manual_file->start_us < 0 && !keyframe) {
+      return;
+    }
+    bool ready = manual_file->start_us >= 0 || manual_file->header(codec_config, timestamp_us);
+    if (!ready || !manual_file->write(data, size, timestamp_us, keyframe)) {
+      LOGE("screen recorder: write failed");
+      manual_file.reset();
+      recording = false;
+    }
   }
-  AVPacket packet = {};
-  packet.data = data;
-  packet.size = size;
-  packet.stream_index = s.stream->index;
-  packet.pts = packet.dts = timestamp_us;
-  packet.duration = 1000000 / MAX_FRAME_RATE;  // only the last frame keeps this; the others get the real gap
-  packet.flags = (flags & V4L2_BUF_FLAG_KEYFRAME) ? AV_PKT_FLAG_KEY : 0;
-  av_write_frame(s.mp4, &packet);
 }
 
 void queueBuffer(int fd, v4l2_buf_type type, unsigned int index, VisionBuf &buf, timeval timestamp = {}) {
@@ -373,7 +467,7 @@ void dequeueLoop(Session *s) {
       }
       VisionBuf &data = s->outputs[packet.index];
       data.sync(VISIONBUF_SYNC_FROM_DEVICE);
-      writePacket(*s, static_cast<uint8_t *>(data.addr), plane.bytesused, packet.timestamp.tv_sec * 1000000LL + packet.timestamp.tv_usec, packet.flags);
+      writePacket(static_cast<uint8_t *>(data.addr), plane.bytesused, packet.timestamp.tv_sec * 1000000LL + packet.timestamp.tv_usec, packet.flags);
       queueBuffer(s->encoder_fd, V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE, packet.index, data);
     }
   }
@@ -465,14 +559,11 @@ void capture(wl_proxy *wl_buffer) {
   queueBuffer(session->encoder_fd, V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE, input, session->inputs[input],
               {static_cast<time_t>(timestamp_us / 1000000), static_cast<suseconds_t>(timestamp_us % 1000000)});
 }
-}
 
-void ScreenRecorder::attach() {
-  std::filesystem::remove_all(IN_PROGRESS_DIR);  // a recording cut short by a ui crash has no MP4 index
-  dl_iterate_phdr(patchDriverImports, nullptr);
-}
-
-void ScreenRecorder::start() {
+bool startEncoder() {
+  if (session) {
+    return true;
+  }
   Session *s = new Session();
   {
     std::lock_guard lock(recorder_mutex);
@@ -480,40 +571,27 @@ void ScreenRecorder::start() {
       s->sources.push_back({.buffer = buffer});
     }
   }
+  if (s->sources.empty()) {
+    delete s;
+    return false;  // the first UI frame has not been submitted yet
+  }
   s->width = s->sources[0].buffer.width;
   s->height = s->sources[0].buffer.height;
-
-  s->lock_fd = open(LOCK_PATH, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0664);
-  if (flock(s->lock_fd, LOCK_EX | LOCK_NB) != 0) {  // the DATA panel is deleting or renaming recordings
-    close(s->lock_fd);
-    delete s;
-    return;
-  }
-
-  char name[32];
-  time_t now = time(nullptr);
-  strftime(name, sizeof(name), "%Y-%m-%d_%H-%M-%S.mp4", localtime(&now));
-  util::create_directories(RECORDINGS_DIR, 0775);
-  util::create_directories(IN_PROGRESS_DIR, 0775);
-  s->path = util::string_format("%s/%s", IN_PROGRESS_DIR, name);
-  s->final_path = util::string_format("%s/%s", RECORDINGS_DIR, name);
-  if (!openMp4(*s)) {
-    close(s->lock_fd);
-    delete s;
-    return;
-  }
-
   s->encoder_fd = HANDLE_EINTR(open(ENCODER_DEVICE, O_RDWR | O_NONBLOCK | O_CLOEXEC));
+  if (s->encoder_fd < 0) {
+    delete s;
+    return false;
+  }
+  codec_config.clear();
   configureEncoder(*s);
   createSurfaces(*s);
 
   std::lock_guard lock(recorder_mutex);
   session = s;
-  recording = true;
+  return true;
 }
 
-void ScreenRecorder::stop() {
-  recording = false;
+void stopEncoder() {
   Session *s;
   {
     std::lock_guard lock(recorder_mutex);
@@ -530,25 +608,143 @@ void ScreenRecorder::stop() {
     s->dequeue_thread.join();
   }
 
-  if (s->header_written) {
-    av_write_trailer(s->mp4);
-  }
-  avio_closep(&s->mp4->pb);
-  avformat_free_context(s->mp4);
-  if (s->header_written) {
-    rename(s->path.c_str(), s->final_path.c_str());
-  } else {
-    unlink(s->path.c_str());
-  }
-
   destroySurfaces(*s);
   closeEncoder(*s);
   for (int i = 0; i < ENCODER_BUFFERS; i++) {
     s->inputs[i].free();
     s->outputs[i].free();
   }
-  close(s->lock_fd);
   delete s;
+}
+}
+
+void ScreenRecorder::attach() {
+  std::filesystem::remove_all(IN_PROGRESS_DIR);  // a recording cut short by a ui crash has no MP4 index
+  dl_iterate_phdr(patchDriverImports, nullptr);
+}
+
+void ScreenRecorder::start() {
+  if (recording) {
+    return;
+  }
+  {
+    // The first encoded keyframe waits until the manual file is ready.
+    std::lock_guard lock(manual_mutex);
+    if (!startEncoder()) {
+      return;
+    }
+    std::unique_ptr<Mp4File> output = std::make_unique<Mp4File>();
+    if (output->open(session->width, session->height, false)) {
+      manual_file = std::move(output);
+      recording = true;
+    }
+  }
+  if (!recording && replay_duration == 0) {
+    stopEncoder();
+  }
+}
+
+void ScreenRecorder::stop() {
+  // Drain the encoder before finalizing a manual-only recording.
+  if (replay_duration == 0) {
+    stopEncoder();
+  }
+  std::lock_guard lock(manual_mutex);
+  recording = false;
+  if (manual_file) {
+    if (!manual_file->finish()) {
+      LOGE("screen recorder: could not finalize recording");
+    }
+    manual_file.reset();
+  }
+}
+
+void ScreenRecorder::setReplayDuration(int seconds) {
+  if (seconds == replay_duration) {
+    if (seconds == 0 && !recording && session) {
+      stopEncoder();
+    }
+    return;
+  }
+  if (seconds > 0 && !startEncoder()) {
+    return;
+  }
+  {
+    std::lock_guard lock(packet_mutex);
+    replay_duration = seconds;
+    if (seconds > 0) {
+      replay_buffer.setDuration(seconds);
+    } else {
+      replay_buffer.clear();
+    }
+  }
+  if (seconds == 0 && !recording) {
+    stopEncoder();
+  }
+}
+
+int ScreenRecorder::replaySeconds() {
+  std::lock_guard lock(packet_mutex);
+  return replay_buffer.seconds(nanos_since_boot() / 1000);
+}
+
+bool ScreenRecorder::saveReplay() {
+  if (save_status == ReplaySaveStatus::Saving || !session) {
+    return false;
+  }
+  if (save_thread.joinable()) {
+    save_thread.join();
+  }
+  std::vector<ReplayBuffer::Frame> frames;
+  std::vector<uint8_t> config;
+  int64_t start_us;
+  int64_t end_us;
+  {
+    std::lock_guard lock(packet_mutex);
+    int64_t timestamp_us = nanos_since_boot() / 1000;
+    if (replay_duration == 0 || replay_buffer.seconds(timestamp_us) < 1) {
+      return false;
+    }
+    start_us = replay_buffer.start(timestamp_us);
+    end_us = replay_buffer.end(timestamp_us);
+    frames = replay_buffer.snapshot(start_us);
+    config = codec_config;
+  }
+  uint32_t width = session->width, height = session->height;
+  save_status = ReplaySaveStatus::Saving;
+  save_thread = std::thread([frames = std::move(frames), config = std::move(config), start_us, end_us, width, height]() mutable {
+    util::set_thread_name("save_replay");
+    bool success;
+    {
+      Mp4File output;
+      success = output.open(width, height, true) && output.header(config, start_us);
+      for (size_t i = 0; i < frames.size() && success; ++i) {
+        ReplayBuffer::Frame &frame = frames[i];
+        int64_t next_us = i + 1 < frames.size() ? frames[i + 1]->timestamp_us : end_us;
+        success = output.write(frame->data.data(), frame->data.size(), frame->timestamp_us, frame->keyframe, next_us - frame->timestamp_us);
+        frame.reset();
+      }
+      success = success && output.finish();
+    }
+    frames.clear();
+    if (!success) {
+      LOGE("screen recorder: could not save replay");
+    }
+    save_status = success ? ReplaySaveStatus::Saved : ReplaySaveStatus::Failed;
+  });
+  return true;
+}
+
+ScreenRecorder::ReplaySaveStatus ScreenRecorder::replaySaveStatus() {
+  return save_status;
+}
+
+void ScreenRecorder::shutdown() {
+  setReplayDuration(0);
+  stop();
+  if (save_thread.joinable()) {
+    save_thread.join();
+  }
 }
 
 bool ScreenRecorder::active() {
@@ -561,5 +757,10 @@ void ScreenRecorder::attach() {}
 void ScreenRecorder::start() {}
 void ScreenRecorder::stop() {}
 bool ScreenRecorder::active() { return false; }
+void ScreenRecorder::setReplayDuration(int) {}
+int ScreenRecorder::replaySeconds() { return 0; }
+bool ScreenRecorder::saveReplay() { return false; }
+ScreenRecorder::ReplaySaveStatus ScreenRecorder::replaySaveStatus() { return ReplaySaveStatus::Idle; }
+void ScreenRecorder::shutdown() {}
 
 #endif

@@ -38,6 +38,7 @@ private:
   bool wide_cam_requested = false;
 
   // FrogPilot variables
+  InstantReplayButton *instant_replay_btn;
   DrivingPersonalityButton *personality_btn;
   ScreenRecorderButton *screen_recorder_btn;
 

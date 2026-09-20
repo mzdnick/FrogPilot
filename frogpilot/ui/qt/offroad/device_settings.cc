@@ -33,6 +33,7 @@ FrogPilotDevicePanel::FrogPilotDevicePanel(FrogPilotSettingsWindow *parent, bool
     {"UseKonikServer", tr("Use Konik Server"), tr("<b>Upload your drives to \"stable.konik.ai\" instead of \"connect.comma.ai\".</b><br><br>The device needs to reboot for this to take effect."), ""},
 
     {"ScreenManagement", tr("Screen Settings"), tr("<b>Change how bright the screen is, how long it stays on, and whether you can record it.</b>"), "../../frogpilot/assets/toggle_icons/icon_light.png"},
+    {"InstantReplay", tr("Instant Replay"), tr("<b>Save what just happened on your driving screen.</b><br><br>Choose how far back to keep, then tap the replay button to save a moment you want to review or share. There's no need to remember to start recording beforehand."), ""},
     {"ScreenBrightness", tr("Screen Brightness (Offroad)"), tr("<b>How bright the screen is while you're not driving.</b><br><br>\"Auto\" only follows the light around you while you are driving. While you are parked it is a fixed 50%, whatever the light is like."), ""},
     {"ScreenBrightnessOnroad", tr("Screen Brightness (Onroad)"), tr("<b>How bright the screen is while you're driving.</b><br><br>\"Auto\" matches the light around you, and \"Screen Off\" keeps the display dark until you tap it."), ""},
     {"ScreenRecorder", tr("Screen Recorder"), tr("<b>Add a button to the driving screen that records what's on it.</b><br><br>Your recordings are saved on the device and can be renamed or deleted under \"Screen Recordings\" in the \"DATA\" panel."), ""},
@@ -69,6 +70,12 @@ FrogPilotDevicePanel::FrogPilotDevicePanel(FrogPilotSettingsWindow *parent, bool
         deviceLayout->setCurrentWidget(screenPanel);
       });
       deviceToggle = screenToggle;
+    } else if (param == "InstantReplay") {
+      std::map<float, QString> replayLabels{{0, tr("Off")}, {30, tr("30 seconds")}, {60, tr("1 minute")}};
+      for (int seconds = 90; seconds <= 300; seconds += 30) {
+        replayLabels[seconds] = QString::number(seconds / 60.0) + tr(" minutes");
+      }
+      deviceToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0, 300, QString(), replayLabels, 30);
     } else if (param == "ScreenBrightness" || param == "ScreenBrightnessOnroad") {
       std::map<float, QString> brightnessLabels;
       int minBrightness = (param == "ScreenBrightnessOnroad") ? 0 : 1;

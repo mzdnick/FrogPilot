@@ -713,6 +713,7 @@ class FrogPilotVariables:
     toggle.random_events = self.get_value("RandomEvents")
 
     screen_management = self.get_value("ScreenManagement")
+    toggle.instant_replay = self.get_value("InstantReplay", cast=int, condition=screen_management, default=0)
     toggle.screen_brightness = max(self.get_value("ScreenBrightness", cast=float, condition=screen_management), 1)
     toggle.screen_brightness_onroad = self.get_value("ScreenBrightnessOnroad", cast=float, condition=(screen_management and not toggle.force_onroad))
     toggle.screen_recorder = self.get_value("ScreenRecorder", condition=screen_management) or toggle.debug_mode

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QElapsedTimer>
+
 #include "selfdrive/ui/qt/onroad/buttons.h"
 
 class DrivingPersonalityButton : public QPushButton {
@@ -26,6 +28,21 @@ private:
   QSharedPointer<QMovie> currentGif;
 
   QPixmap currentImg;
+};
+
+class InstantReplayButton : public QPushButton {
+  Q_OBJECT
+
+public:
+  explicit InstantReplayButton(QWidget *parent = 0);
+
+private:
+  void paintEvent(QPaintEvent *event) override;
+  void updateState();
+
+  bool saving = false;
+
+  QElapsedTimer resultTimer;
 };
 
 class ScreenRecorderButton : public QPushButton {

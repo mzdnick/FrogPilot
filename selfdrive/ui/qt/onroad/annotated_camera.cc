@@ -23,6 +23,9 @@ AnnotatedCameraWidget::AnnotatedCameraWidget(VisionStreamType type, QWidget *par
   main_layout->addWidget(experimental_btn, 0, Qt::AlignTop | Qt::AlignRight);
 
   // FrogPilot variables
+  instant_replay_btn = new InstantReplayButton(this);
+  instant_replay_btn->setVisible(false);
+
   personality_btn = new DrivingPersonalityButton(this);
   personality_btn->setVisible(false);
 
@@ -40,6 +43,11 @@ void AnnotatedCameraWidget::updateState(const UIState &s, const FrogPilotUIState
   const cereal::CarState::Reader &carState = sm["carState"].getCarState();
 
   frogpilot_nvg->experimentalButtonPosition = QPoint(experimental_btn->x(), experimental_btn->y());
+
+  const int instant_replay = frogpilot_toggles.value("instant_replay").toInt();
+  ScreenRecorder::setReplayDuration(instant_replay);
+  instant_replay_btn->move(experimental_btn->x() - UI_BORDER_SIZE - btn_size, experimental_btn->y() + screen_recorder_btn->height());
+  instant_replay_btn->setVisible(instant_replay && !(frogpilot_nvg->signalStyle == "static" && carState.getRightBlinker()));
 
   bool onroad_distance_btn_enabled = frogpilot_nvg->dmIconPosition != QPoint(0, 0) && !frogpilot_nvg->hideBottomIcons && frogpilot_toggles.value("onroad_distance_button").toBool();
   personality_btn->setVisible(onroad_distance_btn_enabled);

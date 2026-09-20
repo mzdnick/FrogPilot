@@ -83,6 +83,72 @@ void DrivingPersonalityButton::paintEvent(QPaintEvent *event) {
   drawIcon(p, rect().center() + QPoint(UI_BORDER_SIZE / 2, 0), currentGif ? currentGif->currentPixmap() : currentImg, Qt::transparent, 1.0);
 }
 
+InstantReplayButton::InstantReplayButton(QWidget *parent) : QPushButton(parent) {
+  setFixedSize(btn_size, btn_size / 3);
+  setEnabled(false);
+  setText(tr("BUFFERING..."));
+
+  QObject::connect(this, &QPushButton::clicked, this, [this] {
+    saving = ScreenRecorder::saveReplay();
+    resultTimer.invalidate();
+    updateState();
+  });
+  QObject::connect(uiState(), &UIState::offroadTransition, this, [this](bool) {
+    ScreenRecorder::setReplayDuration(0);
+    saving = false;
+    resultTimer.invalidate();
+    setEnabled(false);
+    setText(tr("BUFFERING..."));
+  });
+  QObject::connect(uiState(), &UIState::uiUpdate, this, &InstantReplayButton::updateState);
+}
+
+void InstantReplayButton::updateState() {
+  ScreenRecorder::ReplaySaveStatus status = ScreenRecorder::replaySaveStatus();
+  if (saving && status != ScreenRecorder::ReplaySaveStatus::Saving) {
+    saving = false;
+    resultTimer.start();
+  }
+
+  if (!isVisible()) {
+    return;
+  }
+
+  int seconds = ScreenRecorder::replaySeconds();
+  setEnabled(status != ScreenRecorder::ReplaySaveStatus::Saving && seconds > 0);
+
+  QString label;
+  if (status == ScreenRecorder::ReplaySaveStatus::Saving) {
+    label = tr("SAVING...");
+  } else if (resultTimer.isValid() && resultTimer.elapsed() < 3000) {
+    label = status == ScreenRecorder::ReplaySaveStatus::Saved ? tr("SAVED!") : tr("SAVE FAILED");
+  } else {
+    label = seconds > 0 ? tr("SAVE %1:%2").arg(seconds / 60).arg(seconds % 60, 2, 10, QChar('0')) : tr("BUFFERING...");
+  }
+
+  setText(label);
+}
+
+void InstantReplayButton::paintEvent(QPaintEvent *event) {
+  QPainter p(this);
+  p.setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing);
+
+  p.setBrush(QColor(0, 0, 0, 166));
+  p.setPen(QPen(QColor(0, 150, 255), 6));
+
+  QRect button_rect = rect().adjusted(10, 4, -10, -4);
+  p.drawRoundedRect(button_rect, 20, 20);
+
+  p.setFont(InterFont(25, QFont::DemiBold));
+  int text_width = p.fontMetrics().horizontalAdvance(text());
+  if (text_width > button_rect.width() - 16) {
+    p.setFont(InterFont(25 * (button_rect.width() - 16) / text_width, QFont::DemiBold));
+  }
+
+  p.setPen(Qt::white);
+  p.drawText(button_rect, Qt::AlignCenter, text());
+}
+
 ScreenRecorderButton::ScreenRecorderButton(QWidget *parent) : QPushButton(parent) {
   setFixedSize(btn_size, btn_size);
 
