@@ -874,11 +874,11 @@ void FrogPilotLongitudinalPanel::updateMetric(bool metric, bool bootRun) {
     double distanceConversion = metric ? FOOT_TO_METER : METER_TO_FOOT;
     double speedConversion = metric ? MILE_TO_KM : KM_TO_MILE;
 
-    params.putInt("IncreasedStoppedDistance", std::lround(params.getInt("IncreasedStoppedDistance") * distanceConversion));
-    params.putInt("IncreasedStoppedDistanceLowVisibility", std::lround(params.getInt("IncreasedStoppedDistanceLowVisibility") * distanceConversion));
-    params.putInt("IncreasedStoppedDistanceRain", std::lround(params.getInt("IncreasedStoppedDistanceRain") * distanceConversion));
-    params.putInt("IncreasedStoppedDistanceRainStorm", std::lround(params.getInt("IncreasedStoppedDistanceRainStorm") * distanceConversion));
-    params.putInt("IncreasedStoppedDistanceSnow", std::lround(params.getInt("IncreasedStoppedDistanceSnow") * distanceConversion));
+    params.putFloat("IncreasedStoppedDistance", params.getFloat("IncreasedStoppedDistance") * distanceConversion);
+    params.putFloat("IncreasedStoppedDistanceLowVisibility", params.getFloat("IncreasedStoppedDistanceLowVisibility") * distanceConversion);
+    params.putFloat("IncreasedStoppedDistanceRain", params.getFloat("IncreasedStoppedDistanceRain") * distanceConversion);
+    params.putFloat("IncreasedStoppedDistanceRainStorm", params.getFloat("IncreasedStoppedDistanceRainStorm") * distanceConversion);
+    params.putFloat("IncreasedStoppedDistanceSnow", params.getFloat("IncreasedStoppedDistanceSnow") * distanceConversion);
 
     params.putInt("CESignalSpeed", std::lround(params.getInt("CESignalSpeed") * speedConversion));
     params.putInt("CESpeed", std::lround(params.getInt("CESpeed") * speedConversion));
@@ -903,16 +903,18 @@ void FrogPilotLongitudinalPanel::updateMetric(bool metric, bool bootRun) {
 
   static bool labelsInitialized = false;
   if (!labelsInitialized) {
-    for (int i = 0; i <= 10; ++i) {
-      imperialDistanceLabels[i] = i == 0 ? tr("Off") : i == 1 ? QString::number(i) + tr(" foot") : QString::number(i) + tr(" feet");
+    for (int i = 0; i <= 100; ++i) {
+      float distance = i / 10.0f;
+      imperialDistanceLabels[distance] = i == 0 ? tr("Off") : i == 10 ? QString::number(distance) + tr(" foot") : QString::number(distance) + tr(" feet");
     }
 
     for (int i = 0; i <= 99; ++i) {
       imperialSpeedLabels[i] = i == 0 ? tr("Off") : QString::number(i) + tr(" mph");
     }
 
-    for (int i = 0; i <= 3; ++i) {
-      metricDistanceLabels[i] = i == 0 ? tr("Off") : i == 1 ? QString::number(i) + tr(" meter") : QString::number(i) + tr(" meters");
+    for (int i = 0; i <= 30; ++i) {
+      float distance = i / 10.0f;
+      metricDistanceLabels[distance] = i == 0 ? tr("Off") : i == 10 ? QString::number(distance) + tr(" meter") : QString::number(distance) + tr(" meters");
     }
 
     for (int i = 0; i <= 150; ++i) {
@@ -939,6 +941,10 @@ void FrogPilotLongitudinalPanel::updateMetric(bool metric, bool bootRun) {
   FrogPilotParamValueControl *increasedStoppedDistanceRainStormToggle = static_cast<FrogPilotParamValueControl*>(toggles["IncreasedStoppedDistanceRainStorm"]);
   FrogPilotParamValueControl *increasedStoppedDistanceSnowToggle = static_cast<FrogPilotParamValueControl*>(toggles["IncreasedStoppedDistanceSnow"]);
   FrogPilotParamValueControl *setSpeedOffsetToggle = static_cast<FrogPilotParamValueControl*>(toggles["SetSpeedOffset"]);
+
+  for (FrogPilotParamValueControl *distanceToggle : {increasedStoppedDistanceToggle, increasedStoppedDistanceLowVisibilityToggle, increasedStoppedDistanceRainToggle, increasedStoppedDistanceRainStormToggle, increasedStoppedDistanceSnowToggle}) {
+    distanceToggle->setPrecision(1);
+  }
 
   if (metric) {
     offset1Toggle->setTitle(tr("Speed Offset (0–29 km/h)"));

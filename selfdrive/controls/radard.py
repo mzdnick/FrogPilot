@@ -167,18 +167,19 @@ def laplacian_pdf(x: float, mu: float, b: float):
 
 def match_vision_to_track(v_ego: float, lead: capnp._DynamicStructReader, model_data: capnp._DynamicStructReader, tracks: dict[int, Track], frogpilot_toggles: SimpleNamespace):
   # FrogPilot variables
+  adjacent_track = None
   if model_data.meta.laneChangeState == LaneChangeState.laneChangeStarting and frogpilot_toggles.human_lane_changes:
     direction = model_data.meta.laneChangeDirection
 
     if direction == LaneChangeDirection.left:
       left_tracks = [track for track in tracks.values() if track.leadLeft]
       if left_tracks:
-        return min(left_tracks, key=lambda c: c.dRel)
+        adjacent_track = min(left_tracks, key=lambda c: c.dRel)
 
     elif direction == LaneChangeDirection.right:
       right_tracks = [track for track in tracks.values() if track.leadRight]
       if right_tracks:
-        return min(right_tracks, key=lambda c: c.dRel)
+        adjacent_track = min(right_tracks, key=lambda c: c.dRel)
 
   offset_vision_dist = lead.x[0] - RADAR_TO_CAMERA
 
@@ -196,10 +197,12 @@ def match_vision_to_track(v_ego: float, lead: capnp._DynamicStructReader, model_
   # stationary radar points can be false positives
   dist_sane = abs(track.dRel - offset_vision_dist) < max([(offset_vision_dist)*.25, 5.0])
   vel_sane = (abs(track.vRel + v_ego - lead.v[0]) < 10) or (v_ego + track.vRel > 3)
-  if dist_sane and vel_sane:
-    return track
-  else:
-    return None
+  if not (dist_sane and vel_sane):
+    track = None
+
+  if adjacent_track is not None:
+    return adjacent_track, lead.prob if adjacent_track is track else 0.0
+  return track, lead.prob if track is not None else 0.0
 
 
 def get_RadarState_from_vision(lead_msg: capnp._DynamicStructReader, v_ego: float, model_v_ego: float):
@@ -226,13 +229,13 @@ def get_lead(v_ego: float, ready: bool, tracks: dict[int, Track], lead_msg: capn
              low_speed_override: bool = True) -> dict[str, Any]:
   # Determine leads, this is where the essential logic happens
   if len(tracks) > 0 and ready and lead_msg.prob > frogpilot_toggles.lead_detection_probability:
-    track = match_vision_to_track(v_ego, lead_msg, model_data, tracks, frogpilot_toggles)
+    track, model_prob = match_vision_to_track(v_ego, lead_msg, model_data, tracks, frogpilot_toggles)
   else:
     track = None
 
   lead_dict = {'status': False}
   if track is not None:
-    lead_dict = track.get_RadarState(lead_msg.prob)
+    lead_dict = track.get_RadarState(model_prob)
   elif (track is None) and ready and (lead_msg.prob > frogpilot_toggles.lead_detection_probability):
     lead_dict = get_RadarState_from_vision(lead_msg, v_ego, model_v_ego)
 

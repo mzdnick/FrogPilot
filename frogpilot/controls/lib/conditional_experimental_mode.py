@@ -113,7 +113,8 @@ class ConditionalExperimentalMode:
   def slow_lead(self, v_ego, sm, frogpilot_toggles):
     if self.frogpilot_planner.tracking_lead and self.frogpilot_planner.lead_one.status:
       predicted_lead_speed = self.frogpilot_planner.lead_one.vLead
-      if sm["modelV2"].leadsV3[0].prob > frogpilot_toggles.lead_detection_probability:
+      if (self.frogpilot_planner.lead_one.modelProb > frogpilot_toggles.lead_detection_probability and
+          sm["modelV2"].leadsV3[0].prob > frogpilot_toggles.lead_detection_probability):
         predicted_lead_speed = max(self.frogpilot_planner.lead_one.vLead + min(sm["modelV2"].leadsV3[0].v) - sm["modelV2"].leadsV3[0].v[0], 0)
 
       required_deceleration = (v_ego**2 - self.frogpilot_planner.lead_one.vLead**2) / (2 * max(self.frogpilot_planner.lead_one.dRel - STOP_DISTANCE, 1))

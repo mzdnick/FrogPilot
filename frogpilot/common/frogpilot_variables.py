@@ -305,9 +305,10 @@ class FrogPilotVariables:
     if not condition or (self.frogpilot_toggles.tuning_level < self.tuning_levels.get(key, 0)):
       if default is not None:
         return default
-      return False if cast is bool else self.default_values.get(key)
-
-    if cast is bool:
+      if cast is bool:
+        return False
+      value = self.default_values.get(key)
+    elif cast is bool:
       value = self.params.get_bool(key)
     else:
       value = self.params.get(key)
@@ -430,10 +431,10 @@ class FrogPilotVariables:
     toggle.use_custom_steerRatio = (bool(round(toggle.steerRatio, 2) != round(steerRatio, 2)) and not toggle.force_auto_tune) or toggle.force_auto_tune_off
 
     advanced_longitudinal_tuning = toggle.openpilot_longitudinal and self.get_value("AdvancedLongitudinalTune")
-    toggle.longitudinalActuatorDelay = self.get_value("LongitudinalActuatorDelay", cast=float, condition=advanced_longitudinal_tuning and self.params.get("LongitudinalActuatorDelay") != 0, default=longitudinalActuatorDelay, min=0, max=1)
+    toggle.longitudinalActuatorDelay = self.get_value("LongitudinalActuatorDelay", cast=float, condition=advanced_longitudinal_tuning and (self.params.get("LongitudinalActuatorDelay") != 0 or self.params.get("LongitudinalActuatorDelayStock") != 0), default=longitudinalActuatorDelay, min=0, max=1)
     toggle.max_desired_acceleration = self.get_value("MaxDesiredAcceleration", cast=float, condition=advanced_longitudinal_tuning and self.params.get("MaxDesiredAcceleration") != 0, min=0.1, max=MAX_ACCELERATION)
-    toggle.startAccel = self.get_value("StartAccel", cast=float, condition=advanced_longitudinal_tuning and self.params.get("StartAccel") != 0, default=startAccel, min=0, max=MAX_ACCELERATION)
-    toggle.stopAccel = self.get_value("StopAccel", cast=float, condition=advanced_longitudinal_tuning and self.params.get("StopAccel") != 0, default=stopAccel, min=-MAX_ACCELERATION, max=0)
+    toggle.startAccel = self.get_value("StartAccel", cast=float, condition=advanced_longitudinal_tuning and (self.params.get("StartAccel") != 0 or self.params.get("StartAccelStock") != 0), default=startAccel, min=0, max=MAX_ACCELERATION)
+    toggle.stopAccel = self.get_value("StopAccel", cast=float, condition=advanced_longitudinal_tuning and (self.params.get("StopAccel") != 0 or self.params.get("StopAccelStock") != 0), default=stopAccel, min=-MAX_ACCELERATION, max=0)
     toggle.stoppingDecelRate = self.get_value("StoppingDecelRate", cast=float, condition=advanced_longitudinal_tuning and self.params.get("StoppingDecelRate") != 0, default=toggle.stoppingDecelRate, min=0.001, max=12)
     toggle.vEgoStarting = self.get_value("VEgoStarting", cast=float, condition=advanced_longitudinal_tuning and self.params.get("VEgoStarting") != 0, default=toggle.vEgoStarting, min=0.01, max=1)
     toggle.vEgoStopping = self.get_value("VEgoStopping", cast=float, condition=advanced_longitudinal_tuning and self.params.get("VEgoStopping") != 0, default=toggle.vEgoStopping, min=0.01, max=1)
@@ -623,7 +624,7 @@ class FrogPilotVariables:
     toggle.lane_changes = self.get_value("LaneChanges")
     toggle.lane_change_delay = self.get_value("LaneChangeTime", cast=float, condition=toggle.lane_changes)
     toggle.lane_detection_width = self.get_value("LaneDetectionWidth", cast=float, condition=toggle.lane_changes, conversion=distance_conversion)
-    toggle.minimum_lane_change_speed = self.get_value("MinimumLaneChangeSpeed", cast=float, condition=toggle.lane_changes, conversion=speed_conversion)
+    toggle.minimum_lane_change_speed = self.get_value("MinimumLaneChangeSpeed", cast=float, condition=toggle.lane_changes, conversion=speed_conversion, default=self.default_values["MinimumLaneChangeSpeed"] * CV.MPH_TO_MS)
     toggle.nudgeless = self.get_value("NudgelessLaneChange", condition=toggle.lane_changes)
     toggle.one_lane_change = self.get_value("OneLaneChange", condition=toggle.lane_changes)
 
@@ -661,10 +662,10 @@ class FrogPilotVariables:
 
     toggle.model_ui = self.get_value("ModelUI")
     toggle.dynamic_path_width = self.get_value("DynamicPathWidth", condition=toggle.model_ui and not toggle.debug_mode)
-    toggle.lane_line_width = self.get_value("LaneLinesWidth", cast=float, condition=toggle.model_ui and not toggle.debug_mode, conversion=small_distance_conversion / 200)
+    toggle.lane_line_width = self.get_value("LaneLinesWidth", cast=float, condition=toggle.model_ui and not toggle.debug_mode, conversion=small_distance_conversion / 200, default=self.default_values["LaneLinesWidth"] * CV.INCH_TO_CM / 200)
     toggle.path_edge_width = self.get_value("PathEdgeWidth", cast=float, condition=toggle.model_ui and not toggle.debug_mode)
-    toggle.path_width = self.get_value("PathWidth", cast=float, condition=toggle.model_ui and not toggle.debug_mode, conversion=distance_conversion / 2)
-    toggle.road_edge_width = self.get_value("RoadEdgesWidth", cast=float, condition=toggle.model_ui and not toggle.debug_mode, conversion=small_distance_conversion / 200)
+    toggle.path_width = self.get_value("PathWidth", cast=float, condition=toggle.model_ui and not toggle.debug_mode, conversion=distance_conversion / 2, default=self.default_values["PathWidth"] * CV.FOOT_TO_METER / 2)
+    toggle.road_edge_width = self.get_value("RoadEdgesWidth", cast=float, condition=toggle.model_ui and not toggle.debug_mode, conversion=small_distance_conversion / 200, default=self.default_values["RoadEdgesWidth"] * CV.INCH_TO_CM / 200)
 
     navigation_ui = self.get_value("NavigationUI")
     toggle.road_name_ui = self.get_value("RoadNameUI", condition=navigation_ui) or toggle.debug_mode

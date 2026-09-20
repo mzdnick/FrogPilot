@@ -403,6 +403,10 @@ public:
     updateDisplay();
   }
 
+  void setPrecision(int decimalPlaces) {
+    factor = std::pow(10, decimalPlaces);
+  }
+
   void setWarning(const QString &newWarning) {
     display_warning = true;
 

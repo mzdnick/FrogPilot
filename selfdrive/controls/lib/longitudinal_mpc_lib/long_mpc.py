@@ -336,7 +336,8 @@ class LongitudinalMpc:
     v_ego = self.x0[1]
 
     if frogpilot_toggles.human_following or traffic_mode_active:
-      if model_lead.prob > frogpilot_toggles.lead_detection_probability and radar_lead.status:
+      if (radar_lead.status and radar_lead.modelProb > frogpilot_toggles.lead_detection_probability and
+          model_lead.prob > frogpilot_toggles.lead_detection_probability):
         x_lead_traj = float(radar_lead.dRel) + (np.asarray(model_lead.x, dtype=np.float64) - model_lead.x[0])
         v_lead_traj = float(radar_lead.vLead) + (np.asarray(model_lead.v, dtype=np.float64) - model_lead.v[0])
 

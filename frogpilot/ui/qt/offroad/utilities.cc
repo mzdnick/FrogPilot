@@ -198,17 +198,17 @@ FrogPilotUtilitiesPanel::FrogPilotUtilitiesPanel(FrogPilotSettingsWindow *parent
           }
         }
 
-        updateFrogPilotToggles();
+        runOnUIThread(resetTogglesButton, [parent, resetTogglesButton, this]() {
+          parent->updateMetric(false, true);
+          parent->updateMetric(params.getBool("IsMetric"));
+          updateFrogPilotToggles();
 
-        runOnUIThread(resetTogglesButton, [resetTogglesButton]() {
           resetTogglesButton->setValue(tr("Reset!"));
         });
 
         util::sleep_for(2500);
 
         runOnUIThread(resetTogglesButton, [parent, resetTogglesButton, this]() {
-          parent->updateMetric(params.getBool("IsMetric"), true);
-
           resetTogglesButton->setEnabled(true);
           resetTogglesButton->setValue("");
 
@@ -257,17 +257,17 @@ FrogPilotUtilitiesPanel::FrogPilotUtilitiesPanel(FrogPilotSettingsWindow *parent
           }
         }
 
-        updateFrogPilotToggles();
+        runOnUIThread(resetTogglesButtonStock, [parent, resetTogglesButtonStock, this]() {
+          parent->updateMetric(false, true);
+          parent->updateMetric(params.getBool("IsMetric"));
+          updateFrogPilotToggles();
 
-        runOnUIThread(resetTogglesButtonStock, [resetTogglesButtonStock]() {
           resetTogglesButtonStock->setValue(tr("Reset!"));
         });
 
         util::sleep_for(2500);
 
         runOnUIThread(resetTogglesButtonStock, [parent, resetTogglesButtonStock, this]() {
-          parent->updateMetric(params.getBool("IsMetric"), true);
-
           resetTogglesButtonStock->setEnabled(true);
           resetTogglesButtonStock->setValue("");
 
