@@ -616,7 +616,7 @@ void FrogPilotAnnotatedCameraWidget::paintCurveSpeedControl(QPainter &p) {
   p.drawRoundedRect(cscRect, 24, 24);
   p.setPen(QPen(whiteColor(), 6));
 
-  QString cscSpeedText = QString::number(std::nearbyint(cscSpeed * speedConversion)) + speedUnit;
+  QString cscSpeedText = QString::number(std::nearbyint(std::min(cscSpeed * speedConversion, speed))) + speedUnit;
   int textWidth = p.fontMetrics().horizontalAdvance(cscSpeedText);
   if (textWidth > cscRect.width() - 20) {
     p.setFont(InterFont(45 * (cscRect.width() - 20) / textWidth, QFont::Bold));
