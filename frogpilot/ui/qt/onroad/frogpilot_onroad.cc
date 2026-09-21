@@ -94,7 +94,7 @@ void FrogPilotOnroadWindow::updateState(const UIState &s, const FrogPilotUIState
                           .arg(qRound(avgFPS));
   }
 
-  update();
+  update(marginRegion);
 }
 
 void FrogPilotOnroadWindow::paintEvent(QPaintEvent *event) {

@@ -283,7 +283,6 @@ struct Mp4File {
     stream->codecpar->extradata_size = config.size();
     AVDictionary *options = nullptr;
     av_dict_set(&options, "use_editlist", "1", 0);
-    av_dict_set(&options, "movie_timescale", "1000000", 0);
     int result = avformat_write_header(mp4, &options);
     av_dict_free(&options);
     if (result < 0) {
