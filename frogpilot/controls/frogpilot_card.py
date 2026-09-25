@@ -25,6 +25,7 @@ class FrogPilotCard:
     self.traffic_mode_enabled = False
 
     self.gap_counter = 0
+    self.prev_cruise_available = None
 
     self.always_on_lateral_set = bool(FPCP.alternativeExperience & ALTERNATIVE_EXPERIENCE.ALWAYS_ON_LATERAL)
     self.frogs_go_moo = is_FrogsGoMoo()
@@ -66,6 +67,12 @@ class FrogPilotCard:
           self.always_on_lateral_allowed = not self.always_on_lateral_allowed
         elif be.type == ButtonType.mainCruise and be.pressed and frogpilot_toggles.always_on_lateral_main:
           self.always_on_lateral_allowed = not self.always_on_lateral_allowed
+    elif self.CP.brand == "mazda" and frogpilot_toggles.always_on_lateral_main:
+      # CRZ_AVAILABLE is already on at ignition when main was left on, so arm on a transition, not the level
+      available = carState.cruiseState.available
+      cruise_main_on = self.prev_cruise_available is False and available
+      self.always_on_lateral_allowed = (self.always_on_lateral_allowed or cruise_main_on or carState.cruiseState.enabled) and available
+      self.prev_cruise_available = available if carState.canValid else None
     elif frogpilot_toggles.always_on_lateral_main:
       self.always_on_lateral_allowed = carState.cruiseState.available
 
